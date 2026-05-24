@@ -2,60 +2,55 @@
 
 一组增强 Claude Code 开发工作流的技能。
 
-## 开发流程
+## 技能
 
 | Skill | 用途 |
 |-------|------|
-| `superpowers:brainstorming` | 创造性工作前的需求探索与方案设计 |
-| `superpowers:writing-plans` | 为多步骤任务编写结构化实现计划 |
-| `superpowers:executing-plans` | 在独立会话中按审查点执行实现计划 |
-| `superpowers:test-driven-development` | 实现功能或修复 Bug 前强制先编写测试 |
-| `superpowers:subagent-driven-development` | 使用子智能体并行执行实现计划中的独立任务 |
-| `superpowers:dispatching-parallel-agents` | 并行处理多个无依赖关系的独立任务 |
+| `agent-debate` | 设计决策有多种可行方案时，启动结构化多智能体辩论并裁决 |
 
-## 质量与审查
+## 技能详情
 
-| Skill | 用途 |
-|-------|------|
-| `review` | 审查 Pull Request 的代码变更 |
-| `security-review` | 对当前分支的变更进行安全审查 |
-| `superpowers:requesting-code-review` | 完成任务或主要功能后请求代码审查 |
-| `superpowers:receiving-code-review` | 处理代码审查反馈，强调技术严谨和验证 |
-| `superpowers:verification-before-completion` | 声称完成前运行验证命令并提供证据 |
-| `simplify` | 审查代码的复用性、质量和效率并修复问题 |
+### agent-debate
 
-## 调试与决策
+当遇到有多个合理方案的设计决策时，启动多个独立的 Agent 分别从不同角度分析和辩论，再由 Judge Agent 选出最优方案。
 
-| Skill | 用途 |
-|-------|------|
-| `superpowers:systematic-debugging` | 发现 Bug 或测试失败时先诊断根因再修复 |
-| `agent-debate` | 设计决策有多种可行方案时启动结构化辩论并裁决 |
+**核心思想：** 多角度独立分析 + 结构化辩论 > 单个 Agent 的判断。
 
-## 工作流与配置
+**辩论流程（7 阶段）：**
 
-| Skill | 用途 |
-|-------|------|
-| `init` | 初始化 CLAUDE.md 作为代码库文档 |
-| `update-config` | 配置 Claude Code 设置、Hook、权限和环境变量 |
-| `keybindings-help` | 自定义键盘快捷键和组合键绑定 |
-| `fewer-permission-prompts` | 扫描历史记录生成白名单以减少权限提示 |
-| `schedule` | 创建定时或一次性的远程智能体任务 |
-| `loop` | 定时循环运行某个提示词或命令 |
-| `superpowers:using-git-worktrees` | 为特性开发创建隔离的 Git 工作树 |
-| `superpowers:finishing-a-development-branch` | 开发完成后提供合并、PR 或清理的选项 |
+```
+1. IDENTIFY  — 明确议题，编写辩论简报（Debate Brief）
+2. SIZE      — 根据决策的广度和深度计算需要多少 agent（2-5个）
+3. CONFIRM   — 向调用方汇报 agent 数量、角度分配和调用成本，等待确认
+4. PROPOSE   — 并行派出 N 个 agent，各自从不同角度提出方案
+5. CRITIQUE  — 每个 agent 阅读所有其他方案，挑漏洞、找假设、挖风险
+6. REBUTTAL  — 各自回应所有对自己的批评，有效则承认，无效则反驳
+7. JUDGE     — 新 agent 通读全部记录，裁定胜负，给出实施方案
+```
 
-## API 与扩展
+**Agent 数量**由决策的广度和深度计算：
 
-| Skill | 用途 |
-|-------|------|
-| `claude-api` | 构建、调试和优化 Claude API / Anthropic SDK 应用 |
-| `superpowers:writing-skills` | 创建、编辑和验证技能文件 |
+```
+agent 数 = 广度分 + 深度分 - 1  （限制在 2-5）
+```
 
-## 入门
+| 广度 | 深度 | Agent 数 | 说明 |
+|------|------|---------|------|
+| 1 | 1 | 2 | 简单二元选择，局部影响 |
+| 1 | 2 | 2 | 二元但跨组件 |
+| 2 | 2 | 3 | 多选项、跨组件，需要多角度 |
+| 2 | 3 | 4 | 多选项、系统性，高风险 |
+| 3 | 3 | 5 | 开放式设计，系统性影响 |
 
-| Skill | 用途 |
-|-------|------|
-| `superpowers:using-superpowers` | 技能系统入口：如何查找和使用技能 |
+**三种触发方式：**
+
+| 触发方式 | 信号 | 说明 |
+|---------|------|------|
+| 计划检查点 | Plan 中标记 `[DEBATE: 议题]` | 执行到该步骤时启动辩论 |
+| Agent 发起 | Agent 发送 `NEEDS_DEBATE: 议题` | 执行中遇到分歧，暂停请求辩论 |
+| 用户发起 | 用户说"辩论一下" | 对当前决策点启动辩论 |
+
+**成本：** 3N+1 次 agent 调用，共 4 轮（2-agent 辩论最低 7 次调用）。
 
 ## 使用方式
 

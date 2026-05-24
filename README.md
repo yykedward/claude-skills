@@ -2,60 +2,46 @@
 
 A collection of skills that enhance the Claude Code development workflow.
 
-## Development Process
+## Skills
 
 | Skill | Purpose |
 |-------|---------|
-| `superpowers:brainstorming` | Explore requirements and design before creative or feature work |
-| `superpowers:writing-plans` | Write structured implementation plans for multi-step tasks |
-| `superpowers:executing-plans` | Execute written plans with review checkpoints in isolated sessions |
-| `superpowers:test-driven-development` | Write tests before any implementation or bugfix code |
-| `superpowers:subagent-driven-development` | Execute plans by dispatching independent tasks to subagents |
-| `superpowers:dispatching-parallel-agents` | Run 2+ independent tasks in parallel with no shared state |
-
-## Quality & Review
-
-| Skill | Purpose |
-|-------|---------|
-| `review` | Review pull request code changes |
-| `security-review` | Security audit of pending changes on the current branch |
-| `superpowers:requesting-code-review` | Request code review when tasks or major features are complete |
-| `superpowers:receiving-code-review` | Handle code review feedback with technical rigor and verification |
-| `superpowers:verification-before-completion` | Run verification and confirm output before claiming work is done |
-| `simplify` | Review changed code for reuse, quality, and efficiency, then fix issues |
-
-## Debugging & Decision Making
-
-| Skill | Purpose |
-|-------|---------|
-| `superpowers:systematic-debugging` | Diagnose root causes before proposing fixes for bugs or test failures |
 | `agent-debate` | Launch structured multi-agent debate when multiple valid design approaches exist |
 
-## Workflow & Configuration
+## Skill Details
 
-| Skill | Purpose |
-|-------|---------|
-| `init` | Initialize a CLAUDE.md file with codebase documentation |
-| `update-config` | Configure settings.json, hooks, permissions, and environment variables |
-| `keybindings-help` | Customize keyboard shortcuts and chord keybindings |
-| `fewer-permission-prompts` | Scan transcripts to generate an allowlist that reduces permission prompts |
-| `schedule` | Create and manage scheduled remote agents (cron or one-shot) |
-| `loop` | Run a prompt or slash command on a recurring interval |
-| `superpowers:using-git-worktrees` | Create an isolated git worktree for feature development |
-| `superpowers:finishing-a-development-branch` | Present structured options for merge, PR, or cleanup when dev is done |
+### agent-debate
 
-## API & Extensions
+Use when encountering design decisions with multiple valid approaches, architectural tradeoffs, or when two implementation strategies need objective comparison during development.
 
-| Skill | Purpose |
-|-------|---------|
-| `claude-api` | Build, debug, and optimize Claude API / Anthropic SDK apps |
-| `superpowers:writing-skills` | Create, edit, and verify skill files |
+**Core principle:** Two independent analyses + structured debate produces better decisions than a single agent's judgment.
 
-## Getting Started
+**The Debate Flow (7 phases):**
 
-| Skill | Purpose |
-|-------|---------|
-| `superpowers:using-superpowers` | Entry point for the skills system: how to find and use skills |
+```
+1. IDENTIFY  — narrow to a specific, scoped question, write a Debate Brief
+2. SIZE      — calculate required agent count from breadth and depth scores
+3. CONFIRM   — present the plan to the caller before launching
+4. PROPOSE   — dispatch N agents in parallel, each from a different angle
+5. CRITIQUE  — each agent reads all other proposals, identifies weaknesses
+6. REBUTTAL  — each agent responds to critiques of their own proposal
+7. JUDGE     — fresh agent selects winner, explains reasoning, outputs implementation plan
+```
+
+**Agent count** is calculated from the decision's breadth (1-3) and depth (1-3):
+
+```
+agent_count = breadth_score + depth_score - 1  (clamped to [2, 5])
+```
+
+**Trigger modes:**
+| Mode | Signal | Action |
+|------|--------|--------|
+| Checkpoint | Plan marks `[DEBATE: topic]` | Launch debate at that step |
+| Agent-initiated | Agent signals `NEEDS_DEBATE: topic` | Pause, launch debate |
+| User-initiated | User says "debate this" or "辩论" | Launch debate on current decision |
+
+**Cost:** 3N+1 agent calls in 4 rounds (min 7 calls for 2-agent debate).
 
 ## Usage
 
