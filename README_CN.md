@@ -16,7 +16,7 @@
 
 **核心思想：** 多角度独立分析 + 结构化辩论 > 单个 Agent 的判断。
 
-**辩论流程（7 阶段）：**
+**辩论流程（8 阶段）：**
 
 ```
 1. IDENTIFY  — 明确议题，编写辩论简报（Debate Brief）
@@ -26,7 +26,10 @@
 5. CRITIQUE  — 每个 agent 阅读所有其他方案，挑漏洞、找假设、挖风险
 6. REBUTTAL  — 各自回应所有对自己的批评，有效则承认，无效则反驳
 7. JUDGE     — 新 agent 通读全部记录，裁定胜负，给出实施方案
+8. OUTPUT    — 获胜方案写入 docs/debate/yyyy-MM-dd-{主题}.md，结果返回给调用方
 ```
+
+**产出：** 获胜实施方案保存到 `docs/debate/` 目录，命名格式 `yyyy-MM-dd-{主题slug}.md`。文档路径和方案返回给调用方（用户或下游 skill），由调用方决定下一步——通常链接到 `writing-plans` 或 `executing-plans`。
 
 **Agent 数量**由决策的广度和深度计算：
 
