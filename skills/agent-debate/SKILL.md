@@ -11,6 +11,8 @@ When a design decision has multiple valid approaches, dispatch two agents to ind
 
 **Core principle:** Two independent analyses + structured debate produces better decisions than a single agent's judgment.
 
+**Adaptive depth:** After adversarial rounds, measure structural divergence between proposals. Route to lighter JUDGE when proposals are clearly distinct, deeper JUDGE when proposals appear convergent (potential shared blind spots). This gives proportional scrutiny: cheaper for simple decisions, more thorough for complex ones.
+
 ## When to Use
 
 - Architecture decision with multiple valid options
@@ -32,19 +34,28 @@ When a design decision has multiple valid approaches, dispatch two agents to ind
 
 ## Cost Estimation (run BEFORE launching debate)
 
-Agent count is determined by decision complexity (see Agent Count Calculation below). Each phase consumes:
+Agent count is determined by decision complexity (see Agent Count Calculation below). The architecture is **adaptive** — actual cost depends on measured divergence after adversarial rounds:
 
 | Phase | Agent Calls | Parallelizable |
 |-------|-------------|----------------|
 | Propose | N | Yes — dispatch together |
 | Critique | N | Yes — dispatch together |
 | Rebuttal | N | Yes — dispatch together |
-| Judge | 1 | No — needs all prior output |
-| **Total** | **3N+1** | 3 parallel rounds + 1 final |
+| Divergence Check | 1 (lightweight model) | No — needs all prior output |
+| Judge (varies by depth) | 1–3 | No |
 
-**Minimum 3 sequential rounds** before a decision is reached. For a 2-agent debate: 7 calls. For a 5-agent debate: 16 calls.
+**Depth routing (based on measured divergence):**
 
-For trivial decisions where one approach is clearly correct, skip the debate and explain why.
+| Divergence | Path | Judge Calls | Total Calls | When |
+|------------|------|-------------|-------------|------|
+| High (proposals clearly distinct) | Fast | 1 | **3N+2** | Proposals already stress-tested each other well; simple judge suffices |
+| Medium | Standard | 1 | **3N+2** | Default — equivalent to baseline |
+| Low (proposals align — possible shared blind spot) | Deep | 3 (multi-scorer) | **3N+4** | Convergent proposals need independent scrutiny to catch groupthink |
+| Classifier uncertain | Fallback | 1 | **3N+2** | Degrade gracefully to baseline |
+
+**Cost range:** 3N+2 (fast) to 3N+4 (deep). For a 2-agent debate: 8–10 calls. For a 5-agent debate: 17–19 calls.
+
+**Default estimate in CONFIRM:** Present the range. "3N+2 to 3N+4 calls, typically 3N+2." The divergence check determines exact cost.
 
 ## The Debate Flow
 
@@ -74,10 +85,16 @@ For trivial decisions where one approach is clearly correct, skip the debate and
    Each agent responds to critiques of their own proposal
    Defend valid points, concede genuine weaknesses
 
-7. JUDGE — fresh agent
-   Reads full debate record → selects winner → explains reasoning → outputs implementation plan
+7. DIVERGENCE CHECK — lightweight model (Haiku)
+   Measure structural divergence between proposals after adversarial testing
+   Route to appropriate JUDGE depth: fast (3N+2), standard (3N+2), or deep (3N+4)
+   If classifier uncertain, fallback to standard depth
 
-8. OUTPUT — save winning implementation plan to docs/debate/yyyy-MM-dd-{topic}.md
+8. JUDGE — fresh agent (or multi-scorer ensemble for deep path)
+   Reads full debate record → selects winner → explains reasoning → outputs implementation plan
+   Deep path: 3 independent JUDGE instances score-averaged for higher reliability
+
+9. OUTPUT — save winning implementation plan to docs/debate/yyyy-MM-dd-{topic}.md
    Return the document path and implementation plan to the caller for next steps
 ```
 
@@ -173,7 +190,7 @@ Before launching any debate agents, the orchestrator MUST present a summary to t
 **Question:** <from brief>
 **Agent count:** N proponent agents
 **Angles:** <one per agent>
-**Estimated cost:** 3N+1 = X total agent calls across 4 rounds
+**Estimated cost:** 3N+2 to 3N+4 calls (fast/standard: 3N+2, deep: 3N+4)
 
 Proceed with this plan?
 ```
@@ -189,6 +206,89 @@ Proceed with this plan?
 | "Change criteria priority" | Update the brief, recalculate if needed |
 
 **Caller's decision always takes highest priority.** If the caller overrides the agent count, use their number — the calculation is a recommendation, not a mandate.
+
+## Adaptive Depth (Divergence-Based Routing)
+
+After REBUTTAL, measure structural divergence between proposals to decide how deep the JUDGE phase should be. This prevents two failure modes:
+- **Over-paying for clear decisions** — when proposals are clearly distinct and well-tested by critique
+- **Under-scrutinizing convergent proposals** — when agents agree superficially but may share blind spots
+
+### Divergence Measurement
+
+Use a single lightweight model call (Haiku) to measure structural similarity across all proposals on three axes:
+
+| Axis | What it measures | Low = proposals are... |
+|------|-----------------|----------------------|
+| **Decision alignment** | Do proposals recommend the same actions? | Similar recommendations |
+| **Rationale alignment** | Do proposals cite the same reasons/evidence? | Similar reasoning |
+| **Risk surface overlap** | Do proposals identify the same tradeoffs/risks? | Similar risk awareness |
+
+This is a **structural clustering task** (are these texts similar?), not a quality judgment (which is better?). Haiku handles structural comparison reliably.
+
+Run divergence measurement **after adversarial rounds** (CRITIQUE+REBUTTAL), not after PROPOSE. Proposals that looked similar before adversarial testing often diverge structurally once critique exposes different assumptions and rebuttal reveals different defense strategies. This prevents false convergence.
+
+### Depth Routing
+
+Map measured divergence to JUDGE depth:
+
+```
+REBUTTAL complete
+    ↓
+DIVERGENCE CHECK (1 Haiku call)
+    │
+    ├── HIGH divergence (proposals clearly distinct)
+    │   → FAST path: 1 JUDGE, standard prompt
+    │   → Total: 3N+2 calls
+    │   → Rationale: Proposals already stress-tested each other;
+    │     adversarial rounds did their job. Simple judge suffices.
+    │
+    ├── MEDIUM divergence (moderate overlap)
+    │   → STANDARD path: 1 JUDGE, standard prompt (= baseline)
+    │   → Total: 3N+2 calls
+    │   → Rationale: Default behavior. No special handling needed.
+    │
+    ├── LOW divergence (proposals align on substance)
+    │   → DEEP path: 3 independent JUDGE instances, score-averaged
+    │   → Total: 3N+4 calls (+2 extra judge calls vs baseline)
+    │   → Rationale: Convergent proposals may share blind spots.
+    │     Multiple independent judges + blind scoring matrix
+    │     provide orthogonal scrutiny that adversarial rounds missed.
+    │
+    └── Classifier UNCERTAIN (ambiguous divergence score)
+        → FALLBACK to STANDARD path (1 JUDGE, 3N+2)
+        → Rationale: When in doubt, use the proven default.
+```
+
+### Deep Path Details
+
+When divergence is LOW, the risk is **groupthink** — all agents independently arriving at the same wrong answer because they share training data biases. The adversarial rounds (CRITIQUE+REBUTTAL) are less effective when proposals agree, because agents find fewer genuine weaknesses to critique.
+
+The deep path counters this with:
+
+1. **Multi-scorer JUDGE ensemble (3 instances):** Three independent JUDGE agents, each with a fresh context window, independently evaluate the full debate record. Their scores/reasoning are aggregated via majority or average.
+2. **Blind scoring matrix:** Each JUDGE instance scores proposals against criteria without seeing proposal authorship labels. This removes any remaining ordering or attribution bias.
+3. **Divergence-aware prompt:** Each JUDGE is explicitly told "Proposals were classified as highly convergent — look harder for hidden disagreements, unstated assumptions, and shared blind spots."
+
+The deep path costs 2 extra calls (3N+2 → 3N+4) and is only triggered when proposals converge. This is proportional spend: more scrutiny where needed, not everywhere.
+
+### Classifier Calibration
+
+The divergence classifier thresholds should start conservative (bias toward STANDARD path) and be calibrated from shadow data:
+
+1. **Shadow mode:** Run divergence checks without changing behavior — always use STANDARD path, log divergence scores
+2. **Calibrate:** After 10–20 real debates, review divergence score distributions and JUDGE confidence correlations
+3. **Enable:** Set thresholds based on observed data, keep the "uncertain" band wide enough to catch edge cases
+
+Default thresholds (before calibration):
+- LOW divergence: decision alignment > 80% AND rationale alignment > 70%
+- HIGH divergence: decision alignment < 40% OR risk overlap < 50%
+- Everything else: MEDIUM → STANDARD path
+
+### Graceful Degradation
+
+- **Classifier fails** → fallback to STANDARD path. Failure mode is "not optimized," not "wrong answer."
+- **Deep path judges disagree** → report disagreement in OUTPUT as a confidence signal; majority decision stands.
+- **User overrides depth** → CONFIRM gate response "Use fast/standard/deep path" sets depth regardless of divergence.
 
 ## Prompt Templates
 
@@ -266,7 +366,46 @@ Address critiques grouped by critic. DO NOT introduce entirely new arguments.
 Respond to the critiques directly.
 ```
 
-### Judge
+### Divergence Check
+
+After REBUTTAL, dispatch one lightweight Agent() (Haiku) to measure structural divergence:
+
+```
+You are a structural divergence classifier. Your task is to measure how similar or different the proposals are — NOT which is better.
+
+DEBATE TOPIC: <original question from brief>
+
+=== ALL PROPOSALS ===
+<all N proposals, labeled by agent number>
+
+=== ALL REBUTTALS ===
+<all rebuttal outputs, labeled by agent>
+
+Evaluate the proposals on three axes (score each 0–100):
+
+1. DECISION ALIGNMENT — Do the proposals recommend the same or compatible concrete actions?
+   0 = completely different actions, 100 = identical recommendations
+
+2. RATIONALE ALIGNMENT — Do the proposals cite the same or compatible reasons, evidence, and values?
+   0 = completely different reasoning, 100 = identical reasoning
+
+3. RISK SURFACE OVERLAP — Do the proposals identify the same set of tradeoffs, risks, and edge cases?
+   0 = completely different risk awareness, 100 = identical risk coverage
+
+OUTPUT ONLY:
+decision_alignment: <0–100>
+rationale_alignment: <0–100>
+risk_overlap: <0–100>
+confidence: <0–100>
+```
+
+The orchestrator then routes based on:
+- LOW divergence: decision_alignment > 80 AND rationale_alignment > 70 → DEEP path
+- HIGH divergence: decision_alignment < 40 OR risk_overlap < 50 → FAST path
+- Everything else → STANDARD path
+- confidence < 50 → FALLBACK to STANDARD path
+
+### Judge (Standard / Fast Path)
 
 Dispatch a fresh Agent() with the complete debate record:
 
@@ -275,9 +414,16 @@ You are the Judge. Your decision is final and binding.
 
 DEBATE TOPIC: <original question from brief>
 NUMBER OF AGENTS: N
+JUDGE MODE: <standard | fast — standard evaluates all proposals; fast may skip
+            exhaustive comparison if one proposal clearly dominates>
 
 EVALUATION CRITERIA (ranked):
 <copied from Debate Brief>
+
+=== DIVERGENCE REPORT ===
+Decision alignment: <score> | Rationale alignment: <score> | Risk overlap: <score>
+<if fast path: proposals were clearly distinct — adversarial rounds stress-tested them well>
+<if standard path: moderate overlap — evaluate all proposals normally>
 
 === AGENT #1 PROPOSAL (angle: <angle>) ===
 ...
@@ -310,6 +456,37 @@ IMPLEMENTATION PLAN:
 - Risk mitigation: <biggest risks and how to handle them>
 ```
 
+### Judge (Deep Path — Low Divergence)
+
+Dispatch **3 independent** Agent() instances in parallel. Each gets the same record but with a divergence-aware prompt:
+
+```
+You are Judge #<X> of 3 in a deep-scrutiny evaluation. Your independent score will be
+averaged with 2 other judges. The proposals were classified as HIGHLY CONVERGENT —
+the agents independently arrived at similar conclusions. This may mean genuine
+consensus, OR it may mean they share a blind spot.
+
+Your task: look harder. Surface hidden disagreements, unstated assumptions, and
+shared blind spots that adversarial critique may have missed precisely because
+the agents agree too much.
+
+<standard judge prompt content — same as above, plus:>
+
+ADDITIONAL DEEP PATH INSTRUCTIONS:
+1. Before evaluating, list 3 potential blind spots or assumptions ALL proposals may share
+2. Score each proposal independently against each criterion (1–10) BEFORE comparing them
+3. Explicitly note any criterion where proposals score IDENTICALLY — flag whether this is
+   genuine agreement or shared oversight
+4. If you find a shared blind spot, explain how it could be addressed
+
+OUTPUT FORMAT (same as standard, plus blind spot analysis and per-criterion scores):
+```
+
+After all 3 judges complete, aggregate:
+- If 3/3 or 2/3 agree on winner → winner stands
+- If all 3 disagree → report as "DEEP PATH — NO CONSENSUS" with all 3 reasonings in OUTPUT; user decides
+- Average per-criterion scores for the implementation plan
+
 ## Decision Logic
 
 ### Picking a Winner
@@ -339,9 +516,11 @@ Debate phases can be truncated when:
 | Condition | Action |
 |-----------|--------|
 | Both proposals converge on the same solution | Skip to JUDGE immediately; confirm alignment |
-| One proposal has a fatal, irreparable flaw exposed in CRITIQUE | Skip REBUTTAL; go to JUDGE, note the fatal flaw |
+| One proposal has a fatal, irreparable flaw exposed in CRITIQUE | Skip REBUTTAL; go to DIVERGENCE CHECK, then JUDGE |
 | Both proposals fail to address a hard constraint from the brief | Abort debate; refine the brief or explore a different option space |
 | The decision is time-sensitive and 2+ rounds have been completed | JUDGE can be called early with available evidence |
+| DIVERGENCE CHECK returns HIGH and all proposals are clearly distinct | FAST path — single lightweight JUDGE pass |
+| DIVERGENCE CHECK returns LOW and proposals align deeply | DEEP path — 3-judge ensemble for blind-spot detection |
 
 When terminating early, explain which condition was met so the user understands the shortcut.
 
@@ -355,7 +534,8 @@ debate-plan.md               — agent count, angles, cost estimate (presented t
 agent-N-proposal.md          — one per agent, captured from Propose phase
 agent-N-critiques-all.md     — one per agent, each critiques all other proposals
 agent-N-rebuttal.md          — one per agent, responds to all critiques of their proposal
-judge-decision.md            — final output from Judge phase
+divergence-check.md          — structural divergence scores on 3 axes (Haiku classifier)
+judge-decision.md            — final output from Judge phase (or 3× judge outputs for deep path)
 ```
 
 For a 3-agent debate, this is: brief + plan + 3 proposals + 3 critiques + 3 rebuttals + 1 decision = 12 artifacts.
@@ -458,6 +638,11 @@ The orchestrator MUST reconcile the two partial approaches before writing the do
 | Launching without caller confirmation | Always present the Debate Plan and get approval; caller may have different preferences |
 | Always defaulting to 2 agents | Calculate breadth/depth scores; complex systemic decisions need 3–5 agents |
 | Over-assigning agents for simple decisions | Breadth 1 + Depth 1 = 2 agents; don't waste calls on straightforward choices |
+| Measuring divergence before adversarial rounds | Divergence check runs AFTER critique+rebuttal; pre-critique proposals may look convergent when they aren't |
+| Using a full model for divergence check | Haiku handles structural text comparison reliably; the task is similarity measurement, not reasoning |
+| Deep path triggered too often | Start with conservative thresholds (bias toward STANDARD); calibrate from shadow data |
+| Classifier uncertainty ignored | Always check confidence score; confidence < 50 → fallback to STANDARD path |
+| Deep path judges all use the same context | Each deep path JUDGE gets a fresh context window — this is what makes their evaluations independent |
 
 ## Complete Example
 
@@ -484,10 +669,11 @@ This is an abbreviated illustration of the debate structure. Real outputs would 
 ### SIZE — Agent Count Calculation
 
 ```
-Breadth score: 1 (binary choice — Redis Streams vs RabbitMQ)
-Depth score:   2 (cross-cutting — affects payment service, monitoring, ops runbooks)
-Agent count:   1 + 2 - 1 = 2 agents
-Total calls:   3×2 + 1 = 7 agent calls across 4 rounds
+Breadth score:    1 (binary choice — Redis Streams vs RabbitMQ)
+Depth score:      2 (cross-cutting — affects payment service, monitoring, ops runbooks)
+Agent count:      1 + 2 - 1 = 2 agents
+Estimated calls:  3×2 + 2 to 3×2 + 4 = 8–10 calls (fast/standard/deep)
+                  Typically 3N+2 = 8 calls unless low divergence triggers deep path
 ```
 
 ### CONFIRM — Present to Caller
@@ -500,9 +686,24 @@ Total calls:   3×2 + 1 = 7 agent calls across 4 rounds
 **Angles:**
   - Agent #1: operational simplicity, leverage existing infra
   - Agent #2: message durability guarantees, mature routing patterns
-**Estimated cost:** 7 agent calls across 4 rounds
+**Estimated cost:** 8–10 calls (fast/standard: 8, deep: 10)
 
 Proceed with this plan?
+```
+
+### DIVERGENCE CHECK (after REBUTTAL)
+
+```
+Divergence classifier evaluated Agent #1 and Agent #2 proposals after adversarial rounds:
+
+decision_alignment: 25  — Agent #1 recommends Redis Streams, Agent #2 recommends RabbitMQ
+rationale_alignment: 30 — Different reasons: ops simplicity vs message durability
+risk_overlap:        45 — Both acknowledge message loss risk, but propose different mitigations
+confidence:          90
+
+ROUTING: HIGH divergence → FAST path (3N+2 = 8 calls)
+Rationale: Proposals are clearly distinct and well-tested by adversarial rounds.
+           Simple JUDGE pass sufficient.
 ```
 
 ### Agent #1 Proposal (angle: operational simplicity) — abbreviated
