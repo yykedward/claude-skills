@@ -76,6 +76,9 @@ For trivial decisions where one approach is clearly correct, skip the debate and
 
 7. JUDGE — fresh agent
    Reads full debate record → selects winner → explains reasoning → outputs implementation plan
+
+8. OUTPUT — save winning implementation plan to docs/debate/yyyy-MM-dd-{topic}.md
+   Return the document path and implementation plan to the caller for next steps
 ```
 
 ## Debate Brief Template
@@ -359,31 +362,84 @@ For a 3-agent debate, this is: brief + plan + 3 proposals + 3 critiques + 3 rebu
 
 Each artifact is passed verbatim to the next phase. Never summarize or paraphrase — the full text is what makes the debate valuable.
 
-## Implementation Handoff
+## Output & Handoff
 
-After the judge produces a decision and implementation plan:
+After the judge produces a decision and implementation plan, save the result as a document and then hand off to implementation skills.
+
+### Step 1: Save Decision Document
+
+Write the judge's full decision (WINNER, REASONING, IMPLEMENTATION PLAN) to the project's `docs/debate/` directory.
+
+**Directory:** `{project_root}/docs/debate/` (create if it doesn't exist)
+
+**Filename format:** `{yyyy-MM-dd}-{topic-slug}.md`
+
+Derive the topic slug from the debate question:
+- Lowercase and replace spaces / special characters with hyphens
+- Keep it concise (under ~50 characters)
+- Example: "Redis Streams vs RabbitMQ for payment callbacks" → `redis-streams-vs-rabbitmq`
+
+Full path example: `docs/debate/2026-05-25-redis-streams-vs-rabbitmq.md`
+
+**Document template:**
+
+```markdown
+# Debate Decision: {original debate question}
+
+**Date:** {yyyy-MM-dd}
+**Winner:** {Agent #N or HYBRID (Agent #X + Agent #Y)}
+**Angles considered:** {list of angles, one per agent}
+
+## Reasoning
+
+{judge's full reasoning — how each approach scored, key deciding factors,
+which arguments survived critique, why winner beats each loser}
+
+## Implementation Plan
+
+{judge's full implementation plan — architecture, key components, data flow,
+migration path, risk mitigation}
+```
+
+### Step 2: Return to Caller
+
+After saving the document, return the result to the calling skill or user. Do NOT assume the next step — the caller decides what to do with the output.
+
+**Return payload:**
+
+```
+Debate complete.
+
+**Winner:** {Agent #N or HYBRID}
+**Decision document:** docs/debate/{yyyy-MM-dd}-{topic-slug}.md
+**Implementation plan summary:** {brief summary of the plan}
+
+The implementation plan in the decision document is ready for downstream skills (e.g., writing-plans, superpowers:writing-plans, executing-plans) if the caller chooses to proceed with implementation.
+```
+
+This keeps agent-debate composable: any skill (writing-plans, superpowers:writing-plans, superpowers:executing-plans, or user directly) can consume the output and decide what to do next.
+
+### Common Downstream Paths
+
+| Caller | Typical next step |
+|--------|-------------------|
+| User directly | User reviews the document and decides whether to implement |
+| writing-plans | Reads the decision document, invokes writing-plans for the plan |
+| superpowers:writing-plans | Reads the decision document, produces implementation plan |
+| superpowers:executing-plans | Reads the plan from the document and executes |
+| Other skill | Each skill handles the output according to its own workflow |
+
+### Step 3: Retain Debate Artifacts
+
+The debate artifacts (brief, proposals, critiques, rebuttals, decision) serve as the rationale documentation — reference them in the PR description so reviewers understand WHY the approach was chosen.
 
 ### Standalone Mode
 
-The orchestrator reads the judge's IMPLEMENTATION PLAN and proceeds with implementation directly. The plan should be concrete enough to execute without re-researching.
-
-### Integrated Mode (with writing-plans / executing-plans)
-
-```
-Judge outputs IMPLEMENTATION PLAN
-    ↓
-Invoke writing-plans skill with the judge's plan as input
-    ↓
-writing-plans produces implementation plan with review checkpoints
-    ↓
-Invoke executing-plans skill to implement
-```
-
-The debate artifacts (brief, proposals, critiques, rebuttals, decision) serve as the rationale documentation — commit them or include them in the PR description so reviewers understand WHY the approach was chosen.
+If the user only wants the debate result without implementation, stop after Step 1 (save the document). The decision document in `docs/debate/` serves as the authoritative record of the decision.
 
 ### If Judge Declares HYBRID
 
-The orchestrator MUST reconcile the two partial approaches before implementation. Read both original proposals, extract the winning parts as specified by the judge, and produce a unified design before invoking writing-plans.
+The orchestrator MUST reconcile the two partial approaches before writing the document. Read both original proposals, extract the winning parts as specified by the judge, produce a unified design, then save the document and return the result to the caller.
 
 ## Common Mistakes
 

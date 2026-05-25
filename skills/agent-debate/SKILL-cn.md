@@ -17,7 +17,7 @@
 
 **不适用：** 只有一个正确答案、决策无关紧要。
 
-## 辩论流程（7 阶段）
+## 辩论流程（8 阶段）
 
 ```
 1. IDENTIFY  — 明确议题，编写辩论简报（Debate Brief）
@@ -27,6 +27,7 @@
 5. CRITIQUE  — 每个 agent 阅读所有其他方案，挑漏洞、找假设、挖风险
 6. REBUTTAL  — 各自回应所有对自己的批评，有效则承认，无效则反驳
 7. JUDGE     — 新 agent 通读全部记录，裁定胜负，给出实施方案
+8. OUTPUT    — 将获胜方案写入 docs/debate/yyyy-MM-dd-{主题}.md，将文档路径和方案返回给调用方
 ```
 
 ## Agent 数量计算
@@ -87,9 +88,11 @@ Proceed with this plan?
 | Agent 发起 | Agent 发送 `NEEDS_DEBATE: 议题` | 执行中遇到分歧，暂停请求辩论 |
 | 用户发起 | 用户说"辩论一下" | 对当前决策点启动辩论 |
 
-## Judge 输出
+## 产出与交付
 
-Judge 宣布赢家后会给出**实施方案**，可直接交给 writing-plans → executing-plans 技能落地。
+1. **保存决策文档** — Judge 的完整决策（胜者、理由、实施方案）写入项目根目录 `docs/debate/` 下，命名格式 `yyyy-MM-dd-{主题slug}.md`
+2. **返回给调用方** — 将文档路径和实施方案返回给调用方，由调用方自行决定下一步（可能是 writing-plans、superpowers:writing-plans、executing-plans 等任意 skill，或用户直接处理）
+3. **仅需决策时** — 如用户只需辩论结果不需实施，保存文档即可停止
 
 ## 关键规则
 
