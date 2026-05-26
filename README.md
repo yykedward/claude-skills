@@ -7,6 +7,7 @@ A collection of skills that enhance the Claude Code development workflow.
 | Skill | Purpose |
 |-------|---------|
 | `agent-debate` | Launch structured multi-agent debate when multiple valid design approaches exist |
+| `design-debate-review` | Review a plan/prompt before execution to find hidden decision points, annotate with `[Debate topic]` markers |
 
 ## Skill Details
 
@@ -55,6 +56,21 @@ agent_count = breadth_score + depth_score - 1  (clamped to [2, 5])
 | User-initiated | User says "debate this" or "辩论" | Launch debate on current decision |
 
 **Cost:** 3N+2 to 3N+4 agent calls (fast/standard: 3N+2, deep: 3N+4). For 2-agent debate: 8–10 calls. Deep path only triggers when proposals are highly convergent (shared blind spot risk).
+
+### design-debate-review
+
+Before submitting a plan or prompt for execution, throw it here first. This skill scans the content, finds where decisions are implicit or ambiguous, and returns:
+
+1. **Annotated original text** — the plan/prompt with `[Debate <topic>]` markers inline at each decision point
+2. **Decision point list** — what needs debate, why, and dependencies
+
+From there, the user decides which topics to debate. Optionally chains into `agent-debate` for each confirmed topic.
+
+**Process (4 steps):**
+1. REVIEW — scan the plan against 4 dimensions (design impact, future constraints, multiple options, hidden assumptions)
+2. EXTRACT — annotate the original text with `[Debate <topic>]` markers, define each topic as a specific question
+3. OUTPUT — return annotated plan + decision point table, ask user what to debate
+4. EXECUTE — run debates in parallel via `agent-debate` (optional, user-driven)
 
 ## Usage
 
